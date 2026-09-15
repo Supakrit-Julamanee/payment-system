@@ -1,0 +1,41 @@
+# Django backend + Docker (PostgreSQL, pgAdmin). See https://git-scm.com/docs/gitignore
+#
+# Keep in git: payments/migrations/, requirements.txt, docker-compose.yml, pgadmin/servers.json.
+# Database and pgAdmin data live in Docker named volumes, not in this folder.
+
+# virtualenv
+.venv/
+venv/
+
+# env files: .env holds DJANGO_SECRET_KEY, OMISE_SECRET_KEY and the DB/pgAdmin passwords,
+# and docker compose reads it too. Only the example is committed.
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Django
+db.sqlite3
+db.sqlite3-journal
+/staticfiles/
+/media/
+*.log
+
+# testing and tooling
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# misc
+.DS_Store
+
+# editors
+.idea/
+.vscode/*
+!.vscode/extensions.json

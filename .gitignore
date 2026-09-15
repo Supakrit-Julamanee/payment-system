@@ -1,0 +1,7 @@
+# Shared ignores for the whole repo. Each service has its own .gitignore (nextjs/, django/).
+
+# macOS
+.DS_Store
+
+# Claude Code: personal settings stay local; .claude/skills/ is committed.
+.claude/settings.local.json
