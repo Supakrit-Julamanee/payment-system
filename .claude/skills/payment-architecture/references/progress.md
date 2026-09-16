@@ -79,6 +79,7 @@
 - [x] `python manage.py sync_pending_payments` (กรณี A, B, C) — 2026-09-16 มี test 11 ข้อผ่าน และรันจริงได้ผลถูกต้องทั้งตอนไม่มีรายการเข้าเงื่อนไข (`checked=0`) และตอนมี QR หมดอายุ 2 ใบ (`checked=2` แล้ว payment เป็น `expired`)
 - [x] ตั้ง cron ให้รันทุก 5 นาที — §16.4 ทดสอบ 2026-09-16: ตั้งเป็นทุก 1 นาทีชั่วคราวก่อน cron รันจริงและเขียน `Sync finished` ลง `django/sync_pending_payments.log` (macOS ไม่ได้บล็อกการเข้าถึง Desktop) แล้วเปลี่ยนเป็น `*/5`
   - ดู/ลบได้ด้วย `crontab -l` และ `crontab -r` (บรรทัดมี comment `payment-system` กำกับ) Docker ต้องรันอยู่ ไม่งั้น job จะ log error แล้วรอรอบถัดไป
+  - 2026-09-16 ถอด cron ออกแล้วตอนปิด service ทั้งหมดของโปรเจกต์ ถ้าจะใช้อีกให้ติดตั้งใหม่ด้วยบรรทัดใน spec §16.4
 
 ## 8. Tests — §17
 
