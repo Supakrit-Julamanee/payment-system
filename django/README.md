@@ -13,8 +13,11 @@ Built:
 - `omise_client.py`: `create_charge` / `retrieve_charge` (spec §13)
 - all four endpoints, including charging through Omise (402, 502) and webhook verification
 
-Not built yet: `sync_pending_payments` (spec §11), so expired PromptPay charges and payments
-left pending by a gateway timeout are not cleaned up yet.
+- `sync_pending_payments` (spec §11): re-reads pending charges from Omise, and gives up on
+  payments that never got a charge id after 15 minutes (`gateway_unreachable`)
+
+Not built yet: nothing from the backend spec. What is left is manual verification through a
+tunnel (webhook deliveries, PromptPay, full 3DS) and a cron entry for the sync job.
 
 The live payment flow (card, 3DS, PromptPay) has not been run in a browser yet. Automated
 tests mock the Omise client; `config/test_runner.py` fails any test that tries to reach the
@@ -64,3 +67,5 @@ python manage.py test
 - `payments/exceptions.py`: `ApiError`, DRF exception handler, JSON 404/500 handlers
 - `payments/validation.py`: request parsing with the spec error codes
 - `payments/views.py`, `payments/urls.py`: the four endpoints
+- `payments/management/commands/sync_pending_payments.py`: the expiry sync job (run it with
+  `python manage.py sync_pending_payments`)

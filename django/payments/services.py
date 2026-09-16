@@ -6,9 +6,9 @@ It never calls Omise: callers pass a charge they fetched with the secret key.
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,6 +19,9 @@ from .products import CURRENCY, PRODUCTS
 logger = logging.getLogger(__name__)
 
 GATEWAY_UNREACHABLE = "gateway_unreachable"
+
+# Spec §11 case C: a pending payment with no charge id is given up on after this long.
+GATEWAY_UNREACHABLE_AFTER = timedelta(minutes=15)
 
 # Spec §13.4. Any other charge status leaves the payment unchanged.
 CHARGE_STATUS_TO_PAYMENT_STATUS = {
@@ -68,6 +71,26 @@ def create_pending_payment(order: Order, method: str) -> Payment:
         amount=order.amount,
         currency=order.currency,
         status=PaymentStatus.PENDING,
+    )
+
+
+def payments_awaiting_charge_check(now: datetime) -> models.QuerySet[Payment]:
+    """Spec §11 cases A and B: pending payments whose charge should be re-read from Omise.
+
+    A: the charge has expired.  B: no expiry, and the payment is older than 15 minutes.
+    """
+    return Payment.objects.filter(status=PaymentStatus.PENDING, charge_id__isnull=False).filter(
+        Q(expires_at__lte=now)
+        | Q(expires_at__isnull=True, created_at__lte=now - GATEWAY_UNREACHABLE_AFTER)
+    )
+
+
+def payments_without_charge(now: datetime) -> models.QuerySet[Payment]:
+    """Spec §11 case C: /pay never got a charge id back, so the call to Omise failed."""
+    return Payment.objects.filter(
+        status=PaymentStatus.PENDING,
+        charge_id__isnull=True,
+        created_at__lte=now - GATEWAY_UNREACHABLE_AFTER,
     )
 
 

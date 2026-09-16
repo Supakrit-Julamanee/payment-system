@@ -27,7 +27,8 @@
 - [~] ทดสอบ flow จริงในเบราว์เซอร์ — 2026-09-16 ผ่าน §17 ข้อ 1 และ 3
   - ข้อ 1: บัตร `4242...` → order `paid`, payment `successful`, charge ที่ Omise ตรงทั้ง `amount`, `metadata`, `livemode: false`
   - ข้อ 3: บัตร `4111 1111 1114 0011` → payment `failed` (`insufficient_fund`) และ order ยัง `pending` จากนั้นจ่ายซ้ำด้วย `4242...` สำเร็จ ได้ Payment 2 แถวในหนึ่ง order แถวเดิมไม่ถูกแก้ และมี successful ที่ `needs_refund = false` เพียงแถวเดียว
-  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2), PromptPay (ข้อ 4–6), webhook ไม่มาถึง (ข้อ 9)
+  - PromptPay: สร้าง QR จากหน้าเว็บได้จริงแล้ว (ใน DB dev มี payment `promptpay` สถานะ `pending` พร้อม `charge_id` และ `expires_at` +24 ชม.) แต่ยังยืนยันผลการจ่ายไม่ได้เพราะยังไม่ได้ต่อ webhook
+  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2), ยืนยันผล PromptPay (ข้อ 4–6), webhook ไม่มาถึง (ข้อ 9)
 
 ## 2. Backend infrastructure (`django/`) — §4, §7, §14
 
@@ -70,8 +71,8 @@
 
 ## 7. Expiry sync job — §11
 
-- [ ] `python manage.py sync_pending_payments` (กรณี A, B, C)
-- [ ] ตั้ง cron หรือรันด้วยมือ — §16.4
+- [x] `python manage.py sync_pending_payments` (กรณี A, B, C) — 2026-09-16 มี test 11 ข้อผ่าน และรันจริงกับ DB dev ได้ `checked=0 skipped=0 gateway_unreachable=0` (ไม่มีรายการเข้าเงื่อนไข ถูกต้องเพราะ PromptPay ที่ค้างอยู่ยังไม่หมดอายุ)
+- [ ] ตั้ง cron ให้รันทุก 5 นาที — §16.4 (ตอนนี้ต้องรันด้วยมือ)
 
 ## 8. Tests — §17
 
@@ -79,7 +80,7 @@
 - [x] test runner กันไม่ให้ test ยิง Omise จริง (`config/test_runner.py`) — ถ้าลืม mock จะ error ทันที
 - [x] ครอบคลุมแล้ว: ข้อ 7 (กดจ่ายซ้ำ มี charge เดียว), 8 (webhook ซ้ำ), 10 (`needs_refund`), 11 (แก้ราคา), 12 (webhook ปลอม → 200), 13 (order ที่จ่ายแล้ว → 409), 14 (live key)
 - [x] test แบบ mock Omise client: สำเร็จ, 3DS pending, PromptPay QR, 402 + payment failed, 502 + payment คง pending
-- [ ] test ของ sync job A/B/C — รอเขียน command
+- [x] test ของ sync job กรณี A/B/C รวมกฎ "Omise ยัง pending ให้คงสถานะ" และ "หนึ่งรายการพังต้องไม่หยุดรายการอื่น" — รวมทั้งชุด 91 ข้อผ่าน
 - [~] ข้อ 1 และ 3 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2, 4–6 และ 9 ซึ่งต้องใช้ Dashboard, 3DS หรือ tunnel
 
 ## 9. Local development — §16
@@ -90,6 +91,6 @@
 
 ## งานที่ควรทำถัดไป
 
-1. ทดสอบจ่ายด้วยบัตรทดสอบในเบราว์เซอร์ (§17 ข้อ 1–3) — ทำได้เลยโดยไม่ต้องมี tunnel
-2. `sync_pending_payments` (§11) พร้อม test A/B/C
-3. ตั้ง tunnel + webhook URL ใน Dashboard แล้วทดสอบ PromptPay (§16.3, §17 ข้อ 4–6, 9)
+1. ตั้ง tunnel + webhook URL ใน Dashboard แล้วทดสอบ PromptPay (§16.3, §17 ข้อ 4–6, 9) — โค้ดครบหมดแล้ว เหลือแค่ต่อ webhook เข้ามาให้ถึง
+2. ทดสอบ 3DS แบบกดยืนยันจริง (§17 ข้อ 2) และเก็บข้อมูล §18 ที่ยังค้าง
+3. ตั้ง cron ให้ sync job รันทุก 5 นาที (§16.4)

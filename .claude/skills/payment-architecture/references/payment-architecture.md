@@ -706,6 +706,7 @@ webhook อาจส่งมาไม่ถึง เช่นตอนที�
 - ถ้า Omise ยังตอบว่า `pending` ให้คงสถานะไว้ Django ไม่ตัดสินว่าหมดอายุเอง
 - ถ้าเรียก Omise ไม่สำเร็จ ให้ log แล้วข้ามไป รอรอบถัดไป
 - แต่ละ Payment ต้องประมวลผลแยกกัน รายการหนึ่งพังต้องไม่หยุดรายการอื่น
+- job นี้เลือกเฉพาะ Payment ที่ `status = pending` ดังนั้น Payment ที่ถูกทำเป็น `failed` + `gateway_unreachable` ในกรณี C จะไม่ถูกเช็กซ้ำอีก และไม่มี `charge_id` ให้ถาม Omise ด้วย ทางเดียวที่มันจะกลับมาเป็น `successful` ตามข้อยกเว้นในหัวข้อ 6.1 คือ webhook ที่มาทีหลัง (ซึ่ง `apply_charge` หา Payment เจอผ่าน `metadata.payment_id`) ถ้า webhook ไม่มาถึงเลย ต้องตามด้วยมือใน Dashboard
 
 ---
 
