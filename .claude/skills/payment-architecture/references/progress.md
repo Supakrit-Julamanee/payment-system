@@ -27,8 +27,9 @@
 - [~] ทดสอบ flow จริงในเบราว์เซอร์ — 2026-09-16 ผ่าน §17 ข้อ 1 และ 3
   - ข้อ 1: บัตร `4242...` → order `paid`, payment `successful`, charge ที่ Omise ตรงทั้ง `amount`, `metadata`, `livemode: false`
   - ข้อ 3: บัตร `4111 1111 1114 0011` → payment `failed` (`insufficient_fund`) และ order ยัง `pending` จากนั้นจ่ายซ้ำด้วย `4242...` สำเร็จ ได้ Payment 2 แถวในหนึ่ง order แถวเดิมไม่ถูกแก้ และมี successful ที่ `needs_refund = false` เพียงแถวเดียว
-  - PromptPay: สร้าง QR จากหน้าเว็บได้จริงแล้ว (ใน DB dev มี payment `promptpay` สถานะ `pending` พร้อม `charge_id` และ `expires_at` +24 ชม.) แต่ยังยืนยันผลการจ่ายไม่ได้เพราะยังไม่ได้ต่อ webhook
-  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2), ยืนยันผล PromptPay (ข้อ 4–6), webhook ไม่มาถึง (ข้อ 9)
+  - ข้อ 4 (PromptPay สำเร็จ): สร้าง QR จากหน้าเว็บ → กด Mark as successful ใน Dashboard → Omise ส่ง event `charge.complete` เข้า tunnel → Django ดึง charge มาตรวจแล้ว payment เป็น `successful`, order เป็น `paid` และหน้าเว็บเปลี่ยนเองจาก polling นี่คือการพิสูจน์เส้นทาง webhook จริงครั้งแรก
+  - ข้อ 5 (PromptPay ล้มเหลว): กด Mark as failed → payment เป็น `failed` พร้อม `failure_code = failed_processing` ส่วน order ยัง `pending` ให้ลองใหม่ได้ (webhook 3 event ที่เข้ามาถูกประมวลผลครบทุกตัว)
+  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2 — ติดที่บัญชีทดสอบยังไม่เปิด 3DS ต้องขอ `support@omise.co` ก่อน), PromptPay หมดอายุ (ข้อ 6 — ต้องรอ QR หมดอายุ 24 ชม. แล้วรัน sync job), webhook ไม่มาถึง (ข้อ 9)
 
 ## 2. Backend infrastructure (`django/`) — §4, §7, §14
 
@@ -66,7 +67,8 @@
 - [x] ต่อเข้า `/pay/`: 2xx → `apply_charge` + 201, 4xx → 402, timeout/5xx → 502 — §7.2
 - [x] ต่อเข้า webhook: 404 → 200, timeout/5xx → 500, สำเร็จ → `apply_charge` + 200 — §10
 - [~] ตรวจข้อมูล Omise ตาม §18 — 2026-09-16 ตรวจแล้ว: path ของ QR, `expires_at` 24 ชม., ยอดขั้นต่ำ PromptPay ฿20, วิธีจำลองใน Dashboard, เลขบัตรทดสอบ (ดูตารางท้ายหัวข้อ 18)
-  - เหลือ: ยอดขั้นต่ำของบัตร, 3DS ในบัญชีนี้, parameter ของ `Omise.createSource`, ชื่อ event ของ webhook, idempotency key
+  - 2026-09-16 ตรวจเพิ่ม: บัตรทดสอบ 3DS ใช้ได้เฉพาะบัญชีที่เปิด 3DS (ต้องขอ `support@omise.co`) และ event ที่ Omise ส่งมาจริงคือ `charge.complete`
+  - เหลือ: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, นโยบายส่งซ้ำ webhook, idempotency key
 - [x] ใส่ key จริงใน `django/.env` และ `nextjs/.env.local` — 2026-09-16 ตรวจด้วย `GET https://api.omise.co/account` ได้ HTTP 200, `livemode: false`, country TH, currency THB
 
 ## 7. Expiry sync job — §11
@@ -81,13 +83,14 @@
 - [x] ครอบคลุมแล้ว: ข้อ 7 (กดจ่ายซ้ำ มี charge เดียว), 8 (webhook ซ้ำ), 10 (`needs_refund`), 11 (แก้ราคา), 12 (webhook ปลอม → 200), 13 (order ที่จ่ายแล้ว → 409), 14 (live key)
 - [x] test แบบ mock Omise client: สำเร็จ, 3DS pending, PromptPay QR, 402 + payment failed, 502 + payment คง pending
 - [x] test ของ sync job กรณี A/B/C รวมกฎ "Omise ยัง pending ให้คงสถานะ" และ "หนึ่งรายการพังต้องไม่หยุดรายการอื่น" — รวมทั้งชุด 91 ข้อผ่าน
-- [~] ข้อ 1 และ 3 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2, 4–6 และ 9 ซึ่งต้องใช้ Dashboard, 3DS หรือ tunnel
+- [~] ข้อ 1, 3, 4 และ 5 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2 (3DS ต้องขอเปิดบัญชีก่อน), 6 (QR หมดอายุ) และ 9 (webhook ไม่มาถึง) โดยสองข้อหลังต้องรอ QR หมดอายุ 24 ชม.
 
 ## 9. Local development — §16
 
 - [x] `django/.env` และ `nextjs/.env.local` ตั้งค่าครบและเชื่อมต่อกันได้ (Next.js → Django → PostgreSQL, pgAdmin → PostgreSQL)
 - [x] `.gitignore` ของทุก service (ตรวจแล้วว่าไม่มี secret หลุด)
-- [ ] tunnel (ngrok หรือ cloudflared) และตั้ง webhook URL ใน Omise Dashboard — §16.3
+- [x] tunnel (cloudflared quick tunnel) และตั้ง webhook URL ใน Omise Dashboard — §16.3 ทดสอบ 2026-09-16: ยิงจากภายนอกเข้า `/api/webhooks/omise/` ผ่าน tunnel ได้ และ Omise ส่ง event `charge.complete` เข้ามาจริง
+  - URL ของ quick tunnel เปลี่ยนทุกครั้งที่เปิดใหม่ ต้องกลับไปแก้ใน Dashboard ทุกครั้ง
 
 ## งานที่ควรทำถัดไป
 

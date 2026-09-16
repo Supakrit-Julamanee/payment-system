@@ -995,11 +995,13 @@ python manage.py sync_pending_payments
 | `expires_at` ของ PromptPay | ค่าเริ่มต้นคือ 24 ชั่วโมงหลังสร้าง กำหนดเองได้แต่ห้ามเกิน 24 ชั่วโมง | https://docs.omise.co/promptpay |
 | ยอดขั้นต่ำ PromptPay | 2000 สตางค์ (฿20) ราคาใน `PRODUCTS` (6000 และ 12000) ผ่านเกณฑ์ | https://docs.omise.co/promptpay |
 | จำลอง PromptPay ใน test mode | เปิด charge ใน Dashboard แล้วใช้เมนู **Actions** เลือก `Successful` หรือ `Failed` | https://docs.omise.co/promptpay |
-| บัตรทดสอบ | `4242 4242 4242 4242` = สำเร็จ, `4111 1111 1114 0011` = `insufficient_fund`, `4111 1111 1113 0012` = `stolen_or_lost_card` ใช้วันหมดอายุและ CVV อะไรก็ได้ | https://docs.omise.co/api-testing/thailand |
+| บัตรทดสอบ | `4242 4242 4242 4242` = สำเร็จ, `4111 1111 1114 0011` = `insufficient_fund`, `4111 1111 1113 0012` = `stolen_or_lost_card`, `4111 1111 1112 0013` = `failed_processing` ใช้วันหมดอายุและ CVV อะไรก็ได้ | https://docs.omise.co/api-testing/thailand |
+| 3DS ใน test mode | บัตร 3DS (เช่น Visa `4111 1111 1115 0002` = enrollment ล้มเหลว, `4111 1111 1114 0003` = validation ล้มเหลว) **ใช้ได้เฉพาะบัญชีที่เปิด 3DS แล้ว** ต้องอีเมลขอ `support@omise.co` เปิดให้บัญชีทดสอบก่อน และ charge ต้องส่ง `return_uri` ไปด้วย (เราส่งอยู่แล้วตามหัวข้อ 13.2) | https://docs.omise.co/api-testing/thailand |
+| ชื่อ event ของ webhook | เห็นจริง 2026-09-16: `charge.create` (ตอนสร้าง QR) และ `charge.complete` (ทั้งตอน mark สำเร็จและล้มเหลว) ระบบเราไม่กรองด้วย `key` แต่ดึง charge มาดู `status` เสมอ จึงรองรับทุกชื่อ event โดยไม่ต้องแก้โค้ด | ทดสอบจริง |
 
 **สังเกตจากการทดสอบจริง (2026-09-16):** charge ของบัตร `4242...` ในบัญชีทดสอบนี้คืน `authorize_uri` มาด้วย แต่ `status` เป็น `successful` ตั้งแต่แรก ไม่ต้อง redirect ไปหน้า 3DS ดังนั้นเงื่อนไข redirect ในหัวข้อ 12.3 ต้องดู **ทั้ง** `status = pending` และ `authorize_uri` ถ้าดูแค่ `authorize_uri` จะพาผู้ใช้ไปหน้า 3DS ทั้งที่จ่ายสำเร็จแล้ว
 
-**ยังไม่ได้ตรวจ:** ยอดขั้นต่ำของบัตร, การทำ 3DS แบบที่ต้องกดยืนยันจริง, parameter ของ `Omise.createSource`, ชื่อ event ของ webhook และนโยบายการส่งซ้ำ, idempotency key ตอนสร้าง charge
+**ยังไม่ได้ตรวจ:** ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, นโยบายการส่งซ้ำ webhook ของ Omise, idempotency key ตอนสร้าง charge
 
 ---
 
