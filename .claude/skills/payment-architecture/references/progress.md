@@ -48,6 +48,7 @@
 - [x] models `Order`, `Payment`, `WebhookEvent` + migration แรก — §5
 - [x] constraint ทั้งหมดรวม `one_effective_successful_payment_per_order` — §5.4 (มี test ระดับ DB)
 - [x] pgAdmin ลงทะเบียน server จาก `pgadmin/servers.json` — ต่อ `db:5432` ได้จริง
+- 2026-09-16 ล้างเครื่องแล้ว: ลบ container, volume (`postgres-data`, `pgadmin-data`) และ image ทั้งสองตัว ข้อมูลทดสอบทั้งหมดหายถาวร ถ้าจะใช้อีกให้ `docker compose up -d --wait` (ดาวน์โหลด image ใหม่) แล้ว `python manage.py migrate` เพราะฐานข้อมูลว่างเปล่า ส่วน pgAdmin จะลงทะเบียน server จาก `servers.json` ให้เองตอนเริ่มครั้งแรก
 
 ## 4. Payment logic (`payments/services.py`) — §9
 
