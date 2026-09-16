@@ -14,7 +14,8 @@ export interface OmiseCardInput {
   security_code: string;
 }
 
-// Only the fields this app reads. TODO: verify with Omise docs (spec §18).
+// Only the fields this app reads: `id` on success and `message` on error, as documented
+// for Omise.js callbacks (verified 2026-09-16, spec §18).
 interface OmiseResponse {
   id?: string;
   message?: string;
@@ -72,7 +73,8 @@ export function createToken(card: OmiseCardInput): Promise<string> {
 }
 
 // amount and currency must come from the Django order response, never from the UI.
-// TODO: verify with Omise docs (spec §18) whether createSource needs other parameters.
+// PromptPay needs only type, amount and currency, and the charge amount must match the
+// source amount (verified 2026-09-16, spec §18).
 // Resolves to a source id (src_...).
 export function createPromptPaySource(amount: number, currency: string): Promise<string> {
   return new Promise((resolve, reject) => {

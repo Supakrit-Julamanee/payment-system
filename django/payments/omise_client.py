@@ -90,8 +90,9 @@ def create_charge(
 ) -> dict:
     """POST /charges (spec §13.2). `amount` is satang and comes from the Payment.
 
-    TODO: verify with Omise docs (spec §18) whether POST /charges accepts an idempotency
-    key. It would add a second layer of protection on top of the reuse rule in §7.2.
+    Omise has no idempotency key for this call (verified 2026-09-16, spec §18): the docs do
+    not mention one, and a repeated request with the same `Idempotency-Key` header was not
+    deduplicated. Double charges are prevented by the reuse rule and order lock in §7.2.
     """
     data: dict[str, object] = {
         "amount": amount,

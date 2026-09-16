@@ -444,7 +444,7 @@ response ของ 7.1, 7.2 และ 7.3 สร้างจาก `serialize_or
 | 4xx พร้อม error object | Payment เป็น `failed`, ตั้ง `failure_code` และ `failure_message` จาก Omise | `402 payment_failed` พร้อมข้อมูล order |
 | timeout, network error หรือ 5xx | Payment คงเป็น `pending` และ `charge_id = null` แล้ว log error (sync job หรือ webhook จะจัดการต่อ) | `502 gateway_unavailable` |
 
-> **ข้อควรระวัง (ยังไม่ได้แก้ในสเปก):** กฎ reuse ในข้อ 2 ไม่นับ Payment ที่ `charge_id = null` ถ้าผู้ใช้กดจ่ายใหม่ทันทีหลัง `502` ระบบจะสร้าง Payment และ charge ใหม่ ซึ่งอาจตัดเงินซ้ำถ้า charge แรกเกิดขึ้นจริง (สุดท้ายจะถูกจับได้เป็น `needs_refund`) ตอนนี้ frontend เตือนให้ตรวจสอบสถานะก่อนลองใหม่ (หัวข้อ 12.3) ทางแก้ฝั่ง backend ที่เป็นไปได้คือใช้ idempotency key ของ Omise ซึ่งต้องตรวจก่อนตามหัวข้อ 18
+> **ข้อควรระวัง (ยังไม่ได้แก้ในสเปก):** กฎ reuse ในข้อ 2 ไม่นับ Payment ที่ `charge_id = null` ถ้าผู้ใช้กดจ่ายใหม่ทันทีหลัง `502` ระบบจะสร้าง Payment และ charge ใหม่ ซึ่งอาจตัดเงินซ้ำถ้า charge แรกเกิดขึ้นจริง (สุดท้ายจะถูกจับได้เป็น `needs_refund`) ตอนนี้ frontend เตือนให้ตรวจสอบสถานะก่อนลองใหม่ (หัวข้อ 12.3) ทางแก้ที่เคยคิดไว้คือใช้ idempotency key ของ Omise แต่ตรวจแล้ว (2026-09-16 หัวข้อ 18) ว่า Omise ไม่รองรับ ความเสี่ยงนี้จึงยังอยู่ และจัดการได้ด้วย `needs_refund` แล้วคืนเงินด้วยมือเท่านั้น
 
 **Response `201` (บัตรที่ต้องทำ 3DS)**
 
@@ -1025,7 +1025,15 @@ python manage.py sync_pending_payments
 
 **สังเกตจากการทดสอบจริง (2026-09-16):** charge ของบัตร `4242...` ในบัญชีทดสอบนี้คืน `authorize_uri` มาด้วย แต่ `status` เป็น `successful` ตั้งแต่แรก ไม่ต้อง redirect ไปหน้า 3DS ดังนั้นเงื่อนไข redirect ในหัวข้อ 12.3 ต้องดู **ทั้ง** `status = pending` และ `authorize_uri` ถ้าดูแค่ `authorize_uri` จะพาผู้ใช้ไปหน้า 3DS ทั้งที่จ่ายสำเร็จแล้ว
 
-**ยังไม่ได้ตรวจ:** ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, นโยบายการส่งซ้ำ webhook ของ Omise, idempotency key ตอนสร้าง charge
+### ผลการตรวจรอบสอง (2026-09-16)
+
+| หัวข้อ | ผล | ที่มา |
+|---|---|---|
+| ยอดขั้นต่ำของบัตร | THB ขั้นต่ำ `2000` (฿20.00) สูงสุด `15000000` (฿150,000.00) เอกสารไม่แยกตามวิธีจ่าย ทดสอบจริง: charge บัตร 1999 ถูกปฏิเสธด้วย `invalid_charge: amount must be greater than or equal to ฿20 (2000 satangs)` ส่วน 2000 ผ่าน | https://docs.omise.co/currency-and-amount + ทดสอบจริง |
+| parameter ของ `Omise.createSource` | `Omise.createSource(type, sourceParameters, callback)` โดย `amount` และ `currency` เป็น required, parameter อื่นจำเป็นเฉพาะบาง type (PromptPay ไม่ต้องใช้) callback ได้ `statusCode` กับ `response` ที่มี `id` ตอนสำเร็จหรือ `message` ตอนผิดพลาด และ "If charging a source, amount must match amount specified in the source at its creation." ตรงกับ `lib/omise.ts` | https://docs.omise.co/omise-js, https://docs.omise.co/sources-api, https://docs.omise.co/charges-api |
+| idempotency key ตอนสร้าง charge | **ไม่รองรับ** เอกสาร Charges API ไม่กล่าวถึงเลย ทดสอบจริง: ส่ง `POST /charges` ซ้ำด้วย header `Idempotency-Key` เดิมและ token เดิม ครั้งที่สองได้ `used_token` แทน charge เดิม และไม่มี response header เกี่ยวกับ idempotency (ทดสอบเฉพาะชื่อ header มาตรฐาน) การกันตัดเงินซ้ำจึงพึ่งกฎ reuse และการล็อก order ในหัวข้อ 7.2 | https://docs.omise.co/charges-api + ทดสอบจริง |
+
+ตรวจครบทุกหัวข้อในตารางแล้ว (charge ที่ใช้ทดสอบติด `metadata[purpose]=docs-verification`)
 
 ---
 

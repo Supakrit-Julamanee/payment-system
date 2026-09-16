@@ -68,9 +68,9 @@
 - [x] `payments/omise_client.py`: `create_charge`, `retrieve_charge` (Basic auth, form-encoded, timeout 30 วิ) — §13.1–13.3 แยก error เป็น `OmiseError` / `OmiseNotFound` / `OmiseUnavailable`
 - [x] ต่อเข้า `/pay/`: 2xx → `apply_charge` + 201, 4xx → 402, timeout/5xx → 502 — §7.2
 - [x] ต่อเข้า webhook: 404 → 200, timeout/5xx → 500, สำเร็จ → `apply_charge` + 200 — §10
-- [~] ตรวจข้อมูล Omise ตาม §18 — 2026-09-16 ตรวจแล้ว: path ของ QR, `expires_at` 24 ชม., ยอดขั้นต่ำ PromptPay ฿20, วิธีจำลองใน Dashboard, เลขบัตรทดสอบ (ดูตารางท้ายหัวข้อ 18)
+- [x] ตรวจข้อมูล Omise ตาม §18 — 2026-09-16 ตรวจแล้ว: path ของ QR, `expires_at` 24 ชม., ยอดขั้นต่ำ PromptPay ฿20, วิธีจำลองใน Dashboard, เลขบัตรทดสอบ (ดูตารางท้ายหัวข้อ 18)
   - 2026-09-16 ตรวจเพิ่ม: บัตรทดสอบ 3DS ใช้ได้เฉพาะบัญชีที่เปิด 3DS (ต้องขอ `support@omise.co`), event ที่ส่งจริงมี `charge.create` และ `charge.complete`, event `charge.expire` มีในเอกสารแต่ใช้กับ Barcode Alipay เท่านั้น (PromptPay หมดอายุแล้วเงียบ ตรวจซ้ำด้วย `GET /events` แล้ว) และ Omise ไม่รับประกันการส่ง webhook ซ้ำ
-  - เหลือ: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, idempotency key
+  - 2026-09-16 รอบสอง: ยอดขั้นต่ำของบัตร ฿20 (ทดสอบจริง 1999 ถูกปฏิเสธ 2000 ผ่าน), `Omise.createSource` ใช้แค่ type + amount + currency ตรงกับโค้ด, Omise **ไม่รองรับ** idempotency key (เอกสารไม่มี และทดสอบ header `Idempotency-Key` ซ้ำแล้วได้ `used_token`) ปิด TODO ในโค้ดครบทั้ง 3 จุดแล้ว
 - [x] ใส่ key จริงใน `django/.env` และ `nextjs/.env.local` — 2026-09-16 ตรวจด้วย `GET https://api.omise.co/account` ได้ HTTP 200, `livemode: false`, country TH, currency THB
 - [x] `PROMPTPAY_EXPIRES_IN_SECONDS` (ตัวเลือก ใช้ทดสอบเท่านั้น) ส่ง `expires_at` ตอนสร้าง charge ของ PromptPay — 2026-09-16 ยิงจริงกับ Omise พบว่า 10 วินาทีใช้ได้ และ charge เปลี่ยนเป็น `expired` เองเมื่อเลยเวลา ทำให้ทดสอบ §17 ข้อ 6 และ 9 ได้โดยไม่ต้องรอ 24 ชม.
 
@@ -98,4 +98,4 @@
 
 ## งานที่ควรทำถัดไป
 
-1. เก็บข้อมูล §18 ที่ค้าง: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, idempotency key (ไม่กระทบการใช้งานปัจจุบัน)
+ไม่มีงานค้างตาม spec แล้ว (2026-09-16) งานถัดไปที่เป็นไปได้อยู่นอกขอบเขตตามหัวข้อ 15 เช่น deploy จริง, Celery Beat แทน cron, คืนเงินผ่าน API
