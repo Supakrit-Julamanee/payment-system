@@ -1,26 +1,30 @@
 ---
 name: payment-architecture
-description: Architecture spec and implementation guide for this project's learning payment system — Next.js (App Router) frontend + Django REST Framework backend + Omise (Opn Payments) in test mode, with card (3D Secure) and PromptPay QR. Use this skill whenever working in this project on anything payment-related, even if the user doesn't mention the spec: scaffolding django/ or nextjs/ (TypeScript), the PostgreSQL + pgAdmin Docker setup, writing Order/Payment/WebhookEvent models, the /api/orders/, /pay/ or /api/webhooks/omise/ endpoints, apply_charge, the sync_pending_payments command, Omise.js tokenization or createSource, checkout/polling pages, test-mode key guards, env vars, ngrok/cloudflared webhook setup, writing tests for payment scenarios, or reviewing existing payment code for correctness and security. Also use for questions about how the flow, state machine, duplicate payments, retries or refunds are supposed to work.
+description: Architecture spec and implementation guide for this project's learning payment system — Next.js (App Router) frontend + Django REST Framework backend + Omise (Opn Payments) in test mode, with card (3D Secure) and PromptPay QR. Use this skill whenever working in this project on anything payment-related, even if the user doesn't mention the spec: scaffolding django/ or nextjs/ (TypeScript), the PostgreSQL + pgAdmin Docker setup, writing Order/Payment/WebhookEvent models, the /api/orders/, /pay/ or /api/webhooks/omise/ endpoints, apply_charge, the sync_pending_payments command, Omise.js tokenization or createSource, checkout/polling pages, test-mode key guards, env vars, ngrok/cloudflared webhook setup, writing tests for payment scenarios, or reviewing existing payment code for correctness and security. Also use for questions about how the flow, state machine, duplicate payments, retries or refunds are supposed to work, and whenever the user asks what is already built, what is left, or what to do next — `references/progress.md` is the project's progress checklist.
 ---
 
 # Payment Architecture (Next.js + Django REST + Omise test mode)
 
 The full spec lives in `references/payment-architecture.md` (written in Thai, 19 sections). It is the source of truth. This file tells you how to use it and which rules matter most, so you don't have to hold all 950 lines in your head for a small task.
 
+`references/progress.md` is the progress checklist: what is built, what is half-built, and what is left. The spec says what the system should be; the checklist says where it is now.
+
 ## How to work
 
-1. **Identify the task type**, then read only the spec sections it needs (see the map below). For anything that touches payment state, always also read §6 (state machine) and §9 (`apply_charge`), because every status change flows through them.
-2. **Follow the spec exactly** for names, fields, status values, error codes, HTTP statuses and paths. Other code in the project (frontend, sync job, tests) depends on these matching. If the spec seems wrong or incomplete, say so and propose a change rather than silently deviating.
-3. **Don't invent Omise facts.** §18 lists things that must be checked against Omise's official docs: test card numbers, minimum amounts, 3DS behavior, how to simulate PromptPay, webhook event names, the QR field path, and idempotency key support. If code depends on one of these, point to the docs (https://docs.opn.ooo) or mark it clearly as `TODO: verify with Omise docs`. Don't guess a number.
-4. **Stay in scope** (§1, §15). There's no login, no cart, no refund API and no live mode. If the user asks for one of these, point out that it's outside the spec and confirm before building it.
-5. Respond in the language the user writes in. Code identifiers stay in English as in the spec.
-6. **Project layout and tooling.** The backend lives in `django/` and the frontend in `nextjs/`. The frontend is TypeScript (strict) on Next.js 16 with pnpm: write `.ts`/`.tsx`, never `.js`. Keep TypeScript on 6.0.x until typescript-eslint supports 7. Next.js 16 changed APIs (for example, `params` is a Promise), so read `nextjs/node_modules/next/dist/docs/` before using a Next.js API you're unsure about. API response types live in `nextjs/lib/types.ts` and must stay in sync with §7.
-7. **Database.** PostgreSQL 18 and pgAdmin run in Docker from `django/docker-compose.yml`, reading `django/.env` (§4, §16). Django runs on the host and connects to `localhost:5432`. Start Docker Desktop and `docker compose up -d --wait` before `migrate` or tests. Change the schema only through models plus `makemigrations`, and keep the constraints listed in §5.4.
+1. **Read `references/progress.md` first**, so you know what already exists and don't rebuild it or assume a missing piece is there. **Update it in the same turn you finish a piece of work** (status, notes, and the "อัปเดตล่าสุด" date), and tell the user what you changed. Only mark `[x]` after you ran or tested it; use `[~]` with a note about what is left when code is written but unproven. The checklist tracks status only: decisions and rules belong in the spec.
+2. **Identify the task type**, then read only the spec sections it needs (see the map below). For anything that touches payment state, always also read §6 (state machine) and §9 (`apply_charge`), because every status change flows through them.
+3. **Follow the spec exactly** for names, fields, status values, error codes, HTTP statuses and paths. Other code in the project (frontend, sync job, tests) depends on these matching. If the spec seems wrong or incomplete, say so and propose a change rather than silently deviating.
+4. **Don't invent Omise facts.** §18 lists things that must be checked against Omise's official docs: test card numbers, minimum amounts, 3DS behavior, how to simulate PromptPay, webhook event names, the QR field path, and idempotency key support. If code depends on one of these, point to the docs (https://docs.opn.ooo) or mark it clearly as `TODO: verify with Omise docs`. Don't guess a number.
+5. **Stay in scope** (§1, §15). There's no login, no cart, no refund API and no live mode. If the user asks for one of these, point out that it's outside the spec and confirm before building it.
+6. Respond in the language the user writes in. Code identifiers stay in English as in the spec.
+7. **Project layout and tooling.** The backend lives in `django/` and the frontend in `nextjs/`. The frontend is TypeScript (strict) on Next.js 16 with pnpm: write `.ts`/`.tsx`, never `.js`. Keep TypeScript on 6.0.x until typescript-eslint supports 7. Next.js 16 changed APIs (for example, `params` is a Promise), so read `nextjs/node_modules/next/dist/docs/` before using a Next.js API you're unsure about. API response types live in `nextjs/lib/types.ts` and must stay in sync with §7.
+8. **Database.** PostgreSQL 18 and pgAdmin run in Docker from `django/docker-compose.yml`, reading `django/.env` (§4, §16). Django runs on the host and connects to `localhost:5432`. Start Docker Desktop and `docker compose up -d --wait` before `migrate` or tests. Change the schema only through models plus `makemigrations`, and keep the constraints listed in §5.4.
 
 ## Spec section map
 
 | Task | Read |
 |---|---|
+| "What's done / what's next?" / updating status | `references/progress.md` |
 | Project scaffolding / folder layout | §19, §2, §4, §16 |
 | Env vars, settings, test-key guard | §4, §7 (DRF defaults), §14 |
 | Django models & migrations | §5, §6 |
