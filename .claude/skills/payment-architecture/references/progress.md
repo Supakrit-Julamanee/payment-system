@@ -24,7 +24,10 @@
 - [x] `lib/useOrderPolling.ts` — §12.5
 - [x] หน้า `/`, `/checkout/{orderId}`, `/orders/{orderId}` — โหลดได้ทั้ง 3 หน้า (HTTP 200)
 - [x] test-mode guard ฝั่ง frontend — ทดสอบด้วย key `pkey_live_` แล้วหน้า checkout ไม่โหลด Omise.js
-- [ ] ทดสอบ flow จริงในเบราว์เซอร์ (บัตร, 3DS, PromptPay) — รอ Omise client ฝั่ง backend และ key จริง
+- [~] ทดสอบ flow จริงในเบราว์เซอร์ — 2026-09-16 ผ่าน §17 ข้อ 1 และ 3
+  - ข้อ 1: บัตร `4242...` → order `paid`, payment `successful`, charge ที่ Omise ตรงทั้ง `amount`, `metadata`, `livemode: false`
+  - ข้อ 3: บัตร `4111 1111 1114 0011` → payment `failed` (`insufficient_fund`) และ order ยัง `pending` จากนั้นจ่ายซ้ำด้วย `4242...` สำเร็จ ได้ Payment 2 แถวในหนึ่ง order แถวเดิมไม่ถูกแก้ และมี successful ที่ `needs_refund = false` เพียงแถวเดียว
+  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2), PromptPay (ข้อ 4–6), webhook ไม่มาถึง (ข้อ 9)
 
 ## 2. Backend infrastructure (`django/`) — §4, §7, §14
 
@@ -53,18 +56,17 @@
 
 - [x] `POST /api/orders/` — §7.1 (ยิงจริงได้ 201 และราคามาจาก `PRODUCTS`)
 - [x] `GET /api/orders/{id}/` — §7.3 (ไม่คืน `charge_id` / `metadata`)
-- [~] `POST /api/orders/{id}/pay/` — §7.2 ทำถึงล็อก order, 404, ตรวจ body, 409 และ reuse แล้ว
-  - เหลือ: เรียก `create_pending_payment` แล้วสร้าง charge ตอนนี้ตอบ `501 not_implemented`
-- [~] `POST /api/webhooks/omise/` — §10 ทำถึงบันทึก event, กันซ้ำ และ event ที่ไม่ใช่ charge แล้ว
-  - เหลือ: ดึง charge จาก Omise แล้วเรียก `apply_charge` ตอนนี้ตอบ `501`
+- [x] `POST /api/orders/{id}/pay/` — §7.2 ครบทุกขั้น รวมสร้าง charge, 402, 502 (มี test แบบ mock ครบทุกกรณี)
+- [x] `POST /api/webhooks/omise/` — §10 ครบทุกขั้น รวมดึง charge จาก Omise, 404 → 200, timeout/5xx → 500 (มี test แบบ mock)
 
 ## 6. Omise integration — §13
 
-- [ ] `payments/omise_client.py`: `create_charge`, `retrieve_charge` (Basic auth, form-encoded, timeout 30 วิ) — §13.1–13.3
-- [ ] ต่อเข้า `/pay/`: 2xx → `apply_charge` + 201, 4xx → 402, timeout/5xx → 502 — §7.2
-- [ ] ต่อเข้า webhook: 404 → 200, timeout/5xx → 500, สำเร็จ → `apply_charge` + 200 — §10
-- [ ] ตรวจข้อมูล Omise ตาม §18 (ยอดขั้นต่ำ, บัตรทดสอบ, 3DS, วิธีจำลอง PromptPay, path ของ QR, ชื่อ event, idempotency key)
-- [ ] ใส่ key จริงใน `django/.env` และ `nextjs/.env.local` (ตอนนี้เป็น placeholder ทั้งคู่)
+- [x] `payments/omise_client.py`: `create_charge`, `retrieve_charge` (Basic auth, form-encoded, timeout 30 วิ) — §13.1–13.3 แยก error เป็น `OmiseError` / `OmiseNotFound` / `OmiseUnavailable`
+- [x] ต่อเข้า `/pay/`: 2xx → `apply_charge` + 201, 4xx → 402, timeout/5xx → 502 — §7.2
+- [x] ต่อเข้า webhook: 404 → 200, timeout/5xx → 500, สำเร็จ → `apply_charge` + 200 — §10
+- [~] ตรวจข้อมูล Omise ตาม §18 — 2026-09-16 ตรวจแล้ว: path ของ QR, `expires_at` 24 ชม., ยอดขั้นต่ำ PromptPay ฿20, วิธีจำลองใน Dashboard, เลขบัตรทดสอบ (ดูตารางท้ายหัวข้อ 18)
+  - เหลือ: ยอดขั้นต่ำของบัตร, 3DS ในบัญชีนี้, parameter ของ `Omise.createSource`, ชื่อ event ของ webhook, idempotency key
+- [x] ใส่ key จริงใน `django/.env` และ `nextjs/.env.local` — 2026-09-16 ตรวจด้วย `GET https://api.omise.co/account` ได้ HTTP 200, `livemode: false`, country TH, currency THB
 
 ## 7. Expiry sync job — §11
 
@@ -73,12 +75,12 @@
 
 ## 8. Tests — §17
 
-- [x] test อัตโนมัติ 60 ข้อผ่านบน PostgreSQL จริง (`python manage.py test`)
-- [x] ครอบคลุมแล้ว: ข้อ 11 (แก้ราคา), 13 (จ่าย order ที่จ่ายแล้ว), 14 (live key), 10 (`needs_refund` ผ่าน `apply_charge`)
-- [~] ข้อ 7 (กดจ่ายซ้ำ) และ 8 (webhook ซ้ำ) — ทดสอบเฉพาะส่วน DB เหลือส่วนที่ต้อง mock Omise client
-- [ ] ข้อ 12 (webhook ปลอม → 404 → 200) — รอ Omise client
-- [ ] test ที่ mock `omise_client.create_charge` / `retrieve_charge`: 402, 502 + payment คง pending, sync job A/B/C
-- [ ] ข้อ 1–6 และ 9 — ต้องทดสอบด้วยมือใน test mode (Dashboard, 3DS, tunnel)
+- [x] test อัตโนมัติ 80 ข้อผ่านบน PostgreSQL จริง (`python manage.py test`)
+- [x] test runner กันไม่ให้ test ยิง Omise จริง (`config/test_runner.py`) — ถ้าลืม mock จะ error ทันที
+- [x] ครอบคลุมแล้ว: ข้อ 7 (กดจ่ายซ้ำ มี charge เดียว), 8 (webhook ซ้ำ), 10 (`needs_refund`), 11 (แก้ราคา), 12 (webhook ปลอม → 200), 13 (order ที่จ่ายแล้ว → 409), 14 (live key)
+- [x] test แบบ mock Omise client: สำเร็จ, 3DS pending, PromptPay QR, 402 + payment failed, 502 + payment คง pending
+- [ ] test ของ sync job A/B/C — รอเขียน command
+- [~] ข้อ 1 และ 3 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2, 4–6 และ 9 ซึ่งต้องใช้ Dashboard, 3DS หรือ tunnel
 
 ## 9. Local development — §16
 
@@ -88,7 +90,6 @@
 
 ## งานที่ควรทำถัดไป
 
-1. `payments/omise_client.py` (§13) แล้วต่อเข้า `/pay/` และ webhook (§7.2, §10)
-2. test ที่ mock Omise client (§17)
-3. `sync_pending_payments` (§11)
-4. ตั้ง tunnel + webhook แล้วทดสอบด้วยมือข้อ 1–6, 9 (§16.3, §17)
+1. ทดสอบจ่ายด้วยบัตรทดสอบในเบราว์เซอร์ (§17 ข้อ 1–3) — ทำได้เลยโดยไม่ต้องมี tunnel
+2. `sync_pending_payments` (§11) พร้อม test A/B/C
+3. ตั้ง tunnel + webhook URL ใน Dashboard แล้วทดสอบ PromptPay (§16.3, §17 ข้อ 4–6, 9)

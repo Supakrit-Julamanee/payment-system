@@ -390,6 +390,8 @@ frontend ห้ามส่ง `amount` มา ถ้าส่งมาต้อ
 
 response ของ 7.1, 7.2 และ 7.3 สร้างจาก `serialize_order()` ใน `payments/serializers.py` ตัวเดียวกัน จึงมี field ครบเท่ากันทุกครั้ง (รวม `paid_at`) ตัวอย่างใน 7.1 และ 7.2 แสดงแค่บางส่วน
 
+เฉพาะกรณีที่สำเร็จ (`200` และ `201`) เท่านั้นที่คืน object ของ order ส่วน `402` และ `502` ใช้รูปแบบ error มาตรฐาน `{"error": {...}}` เหมือน endpoint อื่น โดย `402` ใส่ `message` จาก Omise มาให้ ฝั่ง frontend จะดึง order ใหม่เองเพื่อเอา `failure_message` ที่บันทึกไว้ (หัวข้อ 12.3)
+
 ### 7.2 `POST /api/orders/{order_id}/pay/`
 
 สร้าง Payment และสร้าง charge ที่ Omise
@@ -983,6 +985,20 @@ python manage.py sync_pending_payments
 | Field ของ QR | path ของ URL รูป QR ใน charge object | `payment.qr_image_url` |
 | Idempotency | Omise รองรับ idempotency key ตอนสร้าง charge หรือไม่ | ใช้เพิ่มเติมจากกฎ reuse ได้ |
 | Charge status | ค่าทั้งหมดของ `charge.status` | ตารางแปลงสถานะในหัวข้อ 13.4 |
+
+### ผลการตรวจกับเอกสาร (2026-09-16)
+
+| หัวข้อ | ผล | ที่มา |
+|---|---|---|
+| Field ของ QR | `charge.source.scannable_code.image.download_uri` ตรงกับที่ใช้ใน `_qr_image_url()` | https://docs.omise.co/promptpay |
+| `expires_at` ของ PromptPay | ค่าเริ่มต้นคือ 24 ชั่วโมงหลังสร้าง กำหนดเองได้แต่ห้ามเกิน 24 ชั่วโมง | https://docs.omise.co/promptpay |
+| ยอดขั้นต่ำ PromptPay | 2000 สตางค์ (฿20) ราคาใน `PRODUCTS` (6000 และ 12000) ผ่านเกณฑ์ | https://docs.omise.co/promptpay |
+| จำลอง PromptPay ใน test mode | เปิด charge ใน Dashboard แล้วใช้เมนู **Actions** เลือก `Successful` หรือ `Failed` | https://docs.omise.co/promptpay |
+| บัตรทดสอบ | `4242 4242 4242 4242` = สำเร็จ, `4111 1111 1114 0011` = `insufficient_fund`, `4111 1111 1113 0012` = `stolen_or_lost_card` ใช้วันหมดอายุและ CVV อะไรก็ได้ | https://docs.omise.co/api-testing/thailand |
+
+**สังเกตจากการทดสอบจริง (2026-09-16):** charge ของบัตร `4242...` ในบัญชีทดสอบนี้คืน `authorize_uri` มาด้วย แต่ `status` เป็น `successful` ตั้งแต่แรก ไม่ต้อง redirect ไปหน้า 3DS ดังนั้นเงื่อนไข redirect ในหัวข้อ 12.3 ต้องดู **ทั้ง** `status = pending` และ `authorize_uri` ถ้าดูแค่ `authorize_uri` จะพาผู้ใช้ไปหน้า 3DS ทั้งที่จ่ายสำเร็จแล้ว
+
+**ยังไม่ได้ตรวจ:** ยอดขั้นต่ำของบัตร, การทำ 3DS แบบที่ต้องกดยืนยันจริง, parameter ของ `Omise.createSource`, ชื่อ event ของ webhook และนโยบายการส่งซ้ำ, idempotency key ตอนสร้าง charge
 
 ---
 

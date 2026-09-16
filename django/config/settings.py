@@ -56,6 +56,9 @@ DATABASES = {
     }
 }
 
+# Blocks real Omise calls during tests (see config/test_runner.py).
+TEST_RUNNER = "config.test_runner.NoNetworkTestRunner"
+
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"
 USE_I18N = True

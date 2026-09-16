@@ -71,6 +71,23 @@ def create_pending_payment(order: Order, method: str) -> Payment:
     )
 
 
+def mark_payment_failed(payment: Payment, failure_code: str, failure_message: str) -> Payment:
+    """Spec §7.2: Omise rejected the request with a 4xx, so no charge exists.
+
+    This is the only status change that does not come from a charge. A Payment that is
+    no longer pending is left alone, so a late webhook always wins.
+    """
+    with transaction.atomic():
+        locked = Payment.objects.select_for_update().get(pk=payment.pk)
+        if locked.status != PaymentStatus.PENDING:
+            return locked
+        locked.status = PaymentStatus.FAILED
+        locked.failure_code = failure_code[:255]
+        locked.failure_message = failure_message
+        locked.save(update_fields=["status", "failure_code", "failure_message", "updated_at"])
+    return locked
+
+
 # --- apply_charge (spec §9) ---
 
 
@@ -90,7 +107,8 @@ def _parse_datetime(value: object) -> datetime | None:
 
 
 def _qr_image_url(charge: dict) -> str | None:
-    # TODO: verify with Omise docs (spec §18): path of the QR image URL in a charge.
+    # Verified 2026-09-16 against https://docs.omise.co/promptpay: the QR image lives at
+    # charge.source.scannable_code.image.download_uri.
     try:
         url = charge["source"]["scannable_code"]["image"]["download_uri"]
     except (KeyError, TypeError):

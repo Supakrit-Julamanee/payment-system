@@ -1,25 +1,31 @@
-"""API views (spec §7).
-
-Database parts are done. Steps that need the Omise client are not built yet and return
-501 not_implemented; each TODO(omise) names the spec section to follow.
-"""
+"""API views (spec §7)."""
 
 import json
+import logging
 
+from django.conf import settings
 from django.db import transaction
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .exceptions import ApiError
-from .models import Order, OrderStatus
+from . import omise_client
+from .exceptions import ApiError, error_body
+from .models import Order, OrderStatus, PaymentMethod
+from .omise_client import OmiseError, OmiseNotFound, OmiseUnavailable
 from .serializers import latest_payment_for, serialize_order
-from .services import begin_webhook_event, create_order, find_reusable_payment, mark_webhook_processed
+from .services import (
+    apply_charge,
+    begin_webhook_event,
+    create_order,
+    create_pending_payment,
+    find_reusable_payment,
+    mark_payment_failed,
+    mark_webhook_processed,
+)
 from .validation import parse_create_order, parse_order_id, parse_pay_request
 
-
-def not_implemented(feature: str) -> ApiError:
-    return ApiError(status.HTTP_501_NOT_IMPLEMENTED, "not_implemented", f"{feature} is not implemented yet.")
+logger = logging.getLogger(__name__)
 
 
 def order_not_found() -> ApiError:
@@ -62,25 +68,53 @@ class OrderPayView(APIView):
 
             reusable = find_reusable_payment(order, pay_request.method)
             if reusable is not None:
+                # A double click reuses the charge instead of creating a second one.
                 return Response(serialize_order(order, reusable), status=status.HTTP_200_OK)
 
-            # TODO(omise, §7.2 step 3): payment = create_pending_payment(order, pay_request.method)
-            #   here, and let this atomic block commit before calling Omise. It is not called
-            #   yet so that every click doesn't leave a Payment with charge_id null behind.
+            payment = create_pending_payment(order, pay_request.method)
+        # The Payment is committed here, before Omise is called, so the charge is never
+        # lost if this request dies (spec §7.2 step 3).
 
-        # TODO(omise, §7.2 steps 4-5, §13.2): outside the transaction, create the charge
-        #   (timeout 30 s, return_uri {FRONTEND_URL}/orders/{order_id}, metadata order_id and
-        #   payment_id), then:
-        #   2xx -> apply_charge(charge), 201 with serialize_order
-        #   4xx -> Payment failed with Omise failure_code/message, 402 payment_failed
-        #   timeout/network/5xx -> Payment stays pending, charge_id null, log, 502 gateway_unavailable
-        raise not_implemented("Charging with Omise")
+        try:
+            charge = omise_client.create_charge(
+                amount=payment.amount,
+                currency=payment.currency,
+                order_id=order.id,
+                payment_id=payment.id,
+                token=pay_request.token,
+                source=pay_request.source,
+                # 3DS sends the browser back here; that page asks Django for the result.
+                return_uri=(
+                    f"{settings.FRONTEND_URL}/orders/{order.id}"
+                    if pay_request.method == PaymentMethod.CARD
+                    else None
+                ),
+            )
+        except OmiseError as exc:
+            # 4xx: no charge was created, so this attempt failed for good.
+            mark_payment_failed(payment, exc.code, exc.message)
+            raise ApiError(status.HTTP_402_PAYMENT_REQUIRED, "payment_failed", exc.message) from None
+        except OmiseUnavailable:
+            # The charge may exist, so the Payment stays pending with charge_id null.
+            # The sync job marks it gateway_unreachable after 15 minutes (§11 case C).
+            logger.error("Omise unreachable while charging payment %s", payment.pk)
+            raise ApiError(
+                status.HTTP_502_BAD_GATEWAY,
+                "gateway_unavailable",
+                "The payment gateway did not respond. Check the order status before trying again.",
+            ) from None
+
+        apply_charge(charge)
+        order.refresh_from_db()
+        payment.refresh_from_db()
+        return Response(serialize_order(order, payment), status=status.HTTP_201_CREATED)
 
 
 class OmiseWebhookView(APIView):
     """POST /api/webhooks/omise/ (spec §7.4, §10).
 
-    No authentication. APIView.as_view() already applies csrf_exempt.
+    No authentication. APIView.as_view() already applies csrf_exempt, and the body is
+    never trusted: the charge is always fetched from Omise with the secret key.
     """
 
     def post(self, request):
@@ -95,20 +129,34 @@ class OmiseWebhookView(APIView):
             raise ApiError(status.HTTP_400_BAD_REQUEST, "invalid_event", "Event id is missing or invalid.")
         event_key = event.get("key") if isinstance(event.get("key"), str) else ""
 
-        # Steps 2-3.
+        # Steps 2-3: skip events already processed, otherwise store this one unprocessed.
         webhook_event = begin_webhook_event(event_id, event_key[:64], event)
         if webhook_event is None:
             return Response(status=status.HTTP_200_OK)
 
-        # Step 4.
+        # Step 4: not about a charge, so it is not ours to act on.
         data = event.get("data")
-        if not isinstance(data, dict) or data.get("object") != "charge":
+        charge_id = data.get("id") if isinstance(data, dict) else None
+        if not isinstance(data, dict) or data.get("object") != "charge" or not isinstance(charge_id, str) or not charge_id:
             mark_webhook_processed(webhook_event)
             return Response(status=status.HTTP_200_OK)
 
-        # TODO(omise, §10 steps 5-7): never trust the body. retrieve_charge(data["id"]):
-        #   404 -> mark_webhook_processed, log warning, 200 (probably a fake webhook)
-        #   timeout/5xx -> 500 without marking processed, so Omise retries
-        #   otherwise apply_charge(charge), mark_webhook_processed, 200
-        # Until then processed_at stays null, which is the correct "not processed" state.
-        raise not_implemented("Fetching the charge from Omise")
+        # Step 5: fetch the real charge. The body could be forged.
+        try:
+            charge = omise_client.retrieve_charge(charge_id)
+        except OmiseNotFound:
+            logger.warning("Webhook %s references unknown charge %s (possibly forged)", event_id, charge_id)
+            mark_webhook_processed(webhook_event)
+            return Response(status=status.HTTP_200_OK)
+        except (OmiseUnavailable, OmiseError):
+            # processed_at stays null and Omise retries the delivery.
+            logger.error("Could not fetch charge %s for webhook %s", charge_id, event_id)
+            return Response(
+                error_body("gateway_unavailable", "Could not verify the charge with Omise."),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Steps 6-7.
+        apply_charge(charge)
+        mark_webhook_processed(webhook_event)
+        return Response(status=status.HTTP_200_OK)

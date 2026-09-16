@@ -168,11 +168,6 @@ class PayTests(ApiTestCase):
         self.assertEqual(latest["authorize_uri"], "https://example.test/3ds")
         self.assertEqual(Payment.objects.count(), 1)
 
-    def test_new_payment_waits_for_omise_client(self):
-        response = self.api.post(self.url, CARD_BODY, format="json")
-        self.assertError(response, 501, "not_implemented")
-        self.assertEqual(Payment.objects.count(), 0)
-
     def test_pay_request_repr_hides_token_and_source(self):
         text = repr(PayRequest(method="card", token="tokn_test_secret")) + repr(
             PayRequest(method="promptpay", source="src_test_secret")
@@ -210,13 +205,6 @@ class WebhookTests(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         stored = WebhookEvent.objects.get(pk="evnt_test_1")
         self.assertEqual((stored.processed_at, stored.event_key), (processed_at, "customer.create"))
-
-    def test_charge_event_is_stored_unprocessed_until_omise_client_exists(self):
-        event = {"id": "evnt_test_2", "key": "charge.complete", "data": {"object": "charge", "id": "chrg_test_1"}}
-        self.assertError(self.post_event(event), 501, "not_implemented")
-        stored = WebhookEvent.objects.get(pk="evnt_test_2")
-        self.assertIsNone(stored.processed_at)
-        self.assertEqual(stored.payload, event)
 
 
 class ProductCatalogTests(TestCase):

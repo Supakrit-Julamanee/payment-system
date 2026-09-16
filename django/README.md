@@ -10,13 +10,15 @@ Built:
 - PostgreSQL + pgAdmin in Docker
 - models `Order`, `Payment`, `WebhookEvent` with database constraints
 - `apply_charge` (spec §9), Payment reuse, webhook de-duplication
-- `POST /api/orders/` and `GET /api/orders/{id}/` fully
-- `POST /api/orders/{id}/pay/` up to the point where Omise is called (404, 400, 409, reuse)
-- `POST /api/webhooks/omise/` up to the point where the charge is fetched from Omise
+- `omise_client.py`: `create_charge` / `retrieve_charge` (spec §13)
+- all four endpoints, including charging through Omise (402, 502) and webhook verification
 
-Not built yet: the Omise client (`omise_client.py`) and `sync_pending_payments`. Those steps
-return `501 not_implemented`; the `TODO(omise, ...)` comments in `payments/views.py` point at
-the spec section for each one.
+Not built yet: `sync_pending_payments` (spec §11), so expired PromptPay charges and payments
+left pending by a gateway timeout are not cleaned up yet.
+
+The live payment flow (card, 3DS, PromptPay) has not been run in a browser yet. Automated
+tests mock the Omise client; `config/test_runner.py` fails any test that tries to reach the
+real API.
 
 ## Setup
 
