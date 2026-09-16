@@ -97,6 +97,8 @@ class PayWithOmiseTests(TestCase):
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, OrderStatus.PENDING)
 
+    # Pin the default so the test does not depend on the developer's .env.
+    @override_settings(PROMPTPAY_EXPIRES_IN_SECONDS=None)
     def test_promptpay_charge_returns_qr_without_return_uri(self):
         build = charge_builder(
             status="pending",
