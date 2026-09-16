@@ -24,14 +24,14 @@
 - [x] `lib/useOrderPolling.ts` — §12.5
 - [x] หน้า `/`, `/checkout/{orderId}`, `/orders/{orderId}` — โหลดได้ทั้ง 3 หน้า (HTTP 200)
 - [x] test-mode guard ฝั่ง frontend — ทดสอบด้วย key `pkey_live_` แล้วหน้า checkout ไม่โหลด Omise.js
-- [~] ทดสอบ flow จริงในเบราว์เซอร์ — 2026-09-16 ผ่าน §17 ข้อ 1, 3, 4, 5, 6 และ 9 เหลือข้อ 2 (3DS)
+- [x] ทดสอบ flow จริงในเบราว์เซอร์ — 2026-09-16 ผ่าน §17 ข้อ 1, 3, 4, 5, 6 และ 9 ส่วนข้อ 2 (3DS) ตัดออกจากการทดสอบตามที่บันทึกไว้ใต้ตารางหัวข้อ 17
   - ข้อ 1: บัตร `4242...` → order `paid`, payment `successful`, charge ที่ Omise ตรงทั้ง `amount`, `metadata`, `livemode: false`
   - ข้อ 3: บัตร `4111 1111 1114 0011` → payment `failed` (`insufficient_fund`) และ order ยัง `pending` จากนั้นจ่ายซ้ำด้วย `4242...` สำเร็จ ได้ Payment 2 แถวในหนึ่ง order แถวเดิมไม่ถูกแก้ และมี successful ที่ `needs_refund = false` เพียงแถวเดียว
   - ข้อ 4 (PromptPay สำเร็จ): สร้าง QR จากหน้าเว็บ → กด Mark as successful ใน Dashboard → Omise ส่ง event `charge.complete` เข้า tunnel → Django ดึง charge มาตรวจแล้ว payment เป็น `successful`, order เป็น `paid` และหน้าเว็บเปลี่ยนเองจาก polling นี่คือการพิสูจน์เส้นทาง webhook จริงครั้งแรก
   - ข้อ 5 (PromptPay ล้มเหลว): กด Mark as failed → payment เป็น `failed` พร้อม `failure_code = failed_processing` ส่วน order ยัง `pending` ให้ลองใหม่ได้ (webhook 3 event ที่เข้ามาถูกประมวลผลครบทุกตัว)
   - ข้อ 6 (QR หมดอายุ): ตั้ง `PROMPTPAY_EXPIRES_IN_SECONDS=10` แล้วสร้าง QR 2 ใบโดยไม่จ่าย พอรัน `sync_pending_payments` ได้ `checked=2` และ payment ทั้งสองเป็น `expired` ส่วน order ยัง `pending` — Django ไม่ได้ตัดสินเอง แต่ถาม Omise แล้วคัดลอกสถานะมา
   - ข้อ 9 (webhook ไม่มาถึง): ปิด tunnel แล้วตั้งอายุ QR 180 วินาที ลำดับเวลา: สร้าง charge 14:12:58 → Mark as successful ที่ Omise 14:13:57 → หมดอายุ 14:15:58 → sync job อัปเดต 14:16:49 ผลคือ payment `successful`, order `paid` ตรงกับ charge ที่ Omise หลักฐานว่า webhook ไม่มาถึงจริง: Omise สร้าง event `charge.create` และ `charge.complete` ของ charge นี้ แต่ตาราง `payments_webhookevent` ยังมี 6 แถวเท่าเดิม
-  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2 — ติดที่บัญชีทดสอบยังไม่เปิด 3DS ต้องขอ `support@omise.co` ก่อน) ตรวจซ้ำ 2026-09-16: เอกสาร 3 หน้ายืนยันว่า 3DS เป็นบริการที่ Omise ต้องเปิดให้ทีละบัญชี และ `authorize_uri` ของ charge เราเป็น `?acs=false` ที่พากลับ `return_uri` ทันทีโดยไม่มีหน้ายืนยันตัวตน (รายละเอียดในตารางท้ายหัวข้อ 18)
+  - ข้อ 2 (3DS): ตัดออกจากการทดสอบ 2026-09-16 เพราะบัญชีทดสอบไม่ได้เปิด 3DS (เอกสาร 3 หน้ายืนยัน และ `authorize_uri` เป็น `?acs=false` ที่ข้ามหน้ายืนยันตัวตน) โค้ดรองรับ 3DS ยังอยู่ครบ
 
 ## 2. Backend infrastructure (`django/`) — §4, §7, §14
 
@@ -87,7 +87,7 @@
 - [x] ครอบคลุมแล้ว: ข้อ 7 (กดจ่ายซ้ำ มี charge เดียว), 8 (webhook ซ้ำ), 10 (`needs_refund`), 11 (แก้ราคา), 12 (webhook ปลอม → 200), 13 (order ที่จ่ายแล้ว → 409), 14 (live key)
 - [x] test แบบ mock Omise client: สำเร็จ, 3DS pending, PromptPay QR, 402 + payment failed, 502 + payment คง pending
 - [x] test ของ sync job กรณี A/B/C รวมกฎ "Omise ยัง pending ให้คงสถานะ" และ "หนึ่งรายการพังต้องไม่หยุดรายการอื่น"
-- [~] ข้อ 1, 3, 4, 5, 6 และ 9 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2 (3DS ต้องขอเปิดบัญชีก่อน)
+- [x] ข้อ 1, 3, 4, 5, 6 และ 9 ผ่านแล้วด้วยมือ (2026-09-16) ข้อ 2 (3DS) ตัดออกจากการทดสอบ
 
 ## 9. Local development — §16
 
@@ -98,5 +98,4 @@
 
 ## งานที่ควรทำถัดไป
 
-1. ขอ `support@omise.co` เปิด 3DS ให้บัญชีทดสอบ แล้วทดสอบ §17 ข้อ 2 — เคสสุดท้ายของ §17 ที่ยังไม่ได้ทดสอบ
-2. เก็บข้อมูล §18 ที่ค้าง: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, idempotency key
+1. เก็บข้อมูล §18 ที่ค้าง: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, idempotency key (ไม่กระทบการใช้งานปัจจุบัน)
