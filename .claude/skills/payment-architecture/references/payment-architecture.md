@@ -126,6 +126,7 @@ flowchart TB
 | `PGADMIN_DEFAULT_EMAIL` | `admin@example.com` | pgAdmin ไม่รับโดเมนอย่าง `.local` |
 | `PGADMIN_DEFAULT_PASSWORD` | (สุ่ม) | |
 | `PGADMIN_PORT` | `5050` | |
+| `PROMPTPAY_EXPIRES_IN_SECONDS` | (ไม่ตั้ง) | ตัวเลือก ใช้ตอนทดสอบเท่านั้น ถ้าตั้งเป็นตัวเลข charge ของ PromptPay จะส่ง `expires_at` เท่ากับ "ตอนนี้ + N วินาที" ทำให้ทดสอบ QR หมดอายุได้โดยไม่ต้องรอ 24 ชั่วโมง |
 
 `docker compose` อ่าน `django/.env` ไฟล์เดียวกับ Django แต่ส่งเข้า container เฉพาะตัวแปร `POSTGRES_*` และ `PGADMIN_*` ที่ระบุใน compose เท่านั้น `OMISE_SECRET_KEY` จึงไม่เข้าไปใน container
 
@@ -675,7 +676,7 @@ sequenceDiagram
 4. ถ้า `data.object != "charge"` ให้ตั้ง `processed_at = now()` แล้วตอบ `200` (ไม่เกี่ยวกับระบบนี้)
 5. ดึง charge จริงด้วย `GET /charges/{data.id}` โดยใช้ secret key
    - ถ้า Omise ตอบ `404` ให้ตั้ง `processed_at = now()`, log warning แล้วตอบ `200` (อาจเป็น webhook ปลอม)
-   - ถ้า timeout หรือ 5xx ให้ตอบ `500` โดยไม่ตั้ง `processed_at` เพื่อให้ Omise ส่งซ้ำ
+   - ถ้า timeout หรือ 5xx ให้ตอบ `500` โดยไม่ตั้ง `processed_at` เพื่อให้ Omise ส่งซ้ำ (เอกสารระบุว่า **ไม่รับประกัน**การส่งซ้ำ ดูหัวข้อ 18 ตัวที่กู้สถานะได้จริงคือ sync job ในหัวข้อ 11)
 6. เรียก `apply_charge(charge)`
 7. ตั้ง `processed_at = now()` แล้วตอบ `200`
 
@@ -688,6 +689,10 @@ sequenceDiagram
 ## 11. Expiry sync job
 
 webhook อาจส่งมาไม่ถึง เช่นตอนที่ tunnel ปิดอยู่ หรือ Omise ส่งซ้ำจนครบจำนวนแล้ว จึงต้องมีงานคอยเช็กเพิ่ม
+
+**ที่สำคัญกว่านั้น:** event `charge.expire` ของ Omise ใช้กับ Barcode Alipay เท่านั้น และการทดสอบ 2026-09-16 ยืนยันว่า charge PromptPay ที่หมดอายุไม่ทำให้เกิด event ใดๆ เลย (ตรวจจาก `GET /events` ขณะ tunnel ยังเปิดอยู่ ดูตารางท้ายหัวข้อ 18) ต่อให้ webhook ทำงานสมบูรณ์แบบ ระบบก็จะไม่มีวันรู้ว่า QR หมดอายุถ้าไม่มี job นี้ กรณี A จึงไม่ใช่แค่ตัวสำรอง แต่เป็นทางเดียวที่ทำให้ Payment ของ PromptPay เปลี่ยนเป็น `expired` ได้
+
+เอกสารยังระบุว่า Omise ไม่รับประกันการส่ง webhook ซ้ำเมื่อส่งไม่สำเร็จ job นี้จึงเป็นตัวกู้สถานะตัวจริงของทุกกรณี ไม่ใช่แค่กรณีหมดอายุ
 
 ### Management command: `python manage.py sync_pending_payments`
 
@@ -811,6 +816,7 @@ requests.post(
 | `return_uri` | ✓ | | `{FRONTEND_URL}/orders/{order_id}` |
 | `metadata[order_id]` | ✓ | ✓ | UUID ของ order |
 | `metadata[payment_id]` | ✓ | ✓ | UUID ของ payment |
+| `expires_at` | | ตัวเลือก | ISO 8601 เช่น `2026-09-16T07:04:46Z` ส่งเมื่อ `PROMPTPAY_EXPIRES_IN_SECONDS` ถูกตั้งค่า ใช้ย่นอายุ QR ตอนทดสอบเท่านั้น ถ้าไม่ส่ง Omise ใช้ค่าเริ่มต้น 24 ชั่วโมง (ห้ามเกิน 24 ชั่วโมง) |
 
 ### 13.3 ดึง charge: `GET /charges/{charge_id}`
 
@@ -992,12 +998,14 @@ python manage.py sync_pending_payments
 | หัวข้อ | ผล | ที่มา |
 |---|---|---|
 | Field ของ QR | `charge.source.scannable_code.image.download_uri` ตรงกับที่ใช้ใน `_qr_image_url()` | https://docs.omise.co/promptpay |
-| `expires_at` ของ PromptPay | ค่าเริ่มต้นคือ 24 ชั่วโมงหลังสร้าง กำหนดเองได้แต่ห้ามเกิน 24 ชั่วโมง | https://docs.omise.co/promptpay |
+| `expires_at` ของ PromptPay | ค่าเริ่มต้นคือ 24 ชั่วโมงหลังสร้าง กำหนดเองได้แต่ห้ามเกิน 24 ชั่วโมง เอกสารไม่ระบุค่าต่ำสุด ทดสอบจริง 2026-09-16 พบว่า **10 วินาทีใช้ได้** และพอเลยเวลา charge เปลี่ยนเป็น `status = expired` เอง | https://docs.omise.co/promptpay + ทดสอบจริง |
 | ยอดขั้นต่ำ PromptPay | 2000 สตางค์ (฿20) ราคาใน `PRODUCTS` (6000 และ 12000) ผ่านเกณฑ์ | https://docs.omise.co/promptpay |
 | จำลอง PromptPay ใน test mode | เปิด charge ใน Dashboard แล้วใช้เมนู **Actions** เลือก `Successful` หรือ `Failed` | https://docs.omise.co/promptpay |
 | บัตรทดสอบ | `4242 4242 4242 4242` = สำเร็จ, `4111 1111 1114 0011` = `insufficient_fund`, `4111 1111 1113 0012` = `stolen_or_lost_card`, `4111 1111 1112 0013` = `failed_processing` ใช้วันหมดอายุและ CVV อะไรก็ได้ | https://docs.omise.co/api-testing/thailand |
 | 3DS ใน test mode | บัตร 3DS (เช่น Visa `4111 1111 1115 0002` = enrollment ล้มเหลว, `4111 1111 1114 0003` = validation ล้มเหลว) **ใช้ได้เฉพาะบัญชีที่เปิด 3DS แล้ว** ต้องอีเมลขอ `support@omise.co` เปิดให้บัญชีทดสอบก่อน และ charge ต้องส่ง `return_uri` ไปด้วย (เราส่งอยู่แล้วตามหัวข้อ 13.2) | https://docs.omise.co/api-testing/thailand |
 | ชื่อ event ของ webhook | เห็นจริง 2026-09-16: `charge.create` (ตอนสร้าง QR) และ `charge.complete` (ทั้งตอน mark สำเร็จและล้มเหลว) ระบบเราไม่กรองด้วย `key` แต่ดึง charge มาดู `status` เสมอ จึงรองรับทุกชื่อ event โดยไม่ต้องแก้โค้ด | ทดสอบจริง |
+| event ตอน charge หมดอายุ | เอกสารมี event `charge.expire` อยู่จริง แต่ระบุไว้ว่า "Charge has expired (**Barcode Alipay only**)" ไม่ครอบคลุม PromptPay และการทดสอบ 2026-09-16 ก็ไม่พบ event ใดๆ ของ charge PromptPay ที่หมดอายุ เมื่อตรวจด้วย `GET /events` หลังหมดอายุไปแล้ว 6 นาที (ตอนนั้น tunnel ยังเปิดอยู่ จึงไม่ใช่เพราะส่งไม่ถึง) สรุป: QR ของ PromptPay หมดอายุแล้วเงียบ ต้องพึ่ง sync job ในหัวข้อ 11 เท่านั้น | https://docs.omise.co/api-webhooks + ทดสอบจริง |
+| นโยบายส่งซ้ำของ webhook | เอกสารระบุว่า "Omise does not currently guarantee automatic retries for failed deliveries" การตอบ `500` ในหัวข้อ 10 จึงเป็นการขอให้ส่งซ้ำแบบไม่มีหลักประกัน ตัวที่กู้สถานะได้จริงคือ sync job | https://docs.omise.co/api-webhooks |
 
 **สังเกตจากการทดสอบจริง (2026-09-16):** charge ของบัตร `4242...` ในบัญชีทดสอบนี้คืน `authorize_uri` มาด้วย แต่ `status` เป็น `successful` ตั้งแต่แรก ไม่ต้อง redirect ไปหน้า 3DS ดังนั้นเงื่อนไข redirect ในหัวข้อ 12.3 ต้องดู **ทั้ง** `status = pending` และ `authorize_uri` ถ้าดูแค่ `authorize_uri` จะพาผู้ใช้ไปหน้า 3DS ทั้งที่จ่ายสำเร็จแล้ว
 

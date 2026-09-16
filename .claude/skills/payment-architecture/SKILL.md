@@ -59,7 +59,7 @@ These are the rules that stop money problems. Bugs here cause double charges, fa
 - `apply_charge` runs inside `transaction.atomic()` with `select_for_update()`, and always locks **Order before Payment** to avoid deadlocks.
 - `/pay` locks the order and reuses an existing Payment that is pending, has the same method, has a `charge_id`, and hasn't expired. It creates a new Payment only when none matches, and commits that Payment **before** calling Omise. This prevents a double-click from charging twice and prevents losing track of a charge if the request dies.
 - If Omise times out or returns 5xx during `/pay`, the Payment stays `pending` with `charge_id = null` and the API returns `502`. It is not marked failed, because the charge may have actually been created. The sync job marks it `gateway_unreachable` after 15 minutes, and that is the only `failed` status that can later become `successful`.
-- Webhooks are deduplicated by `event_id` using `processed_at`. If fetching the charge fails, return `500` so Omise retries. If Omise returns `404` (likely a fake webhook), return `200`.
+- Webhooks are deduplicated by `event_id` using `processed_at`. If fetching the charge fails, return `500` so Omise retries. If Omise returns `404` (likely a fake webhook), return `200`. Omise does not guarantee retries, and an expiring PromptPay charge emits no event at all, so the sync job — not the webhook — is the real backstop (§11, §18).
 - The database enforces `UniqueConstraint(fields=["order"], condition=Q(status="successful", needs_refund=False))` as the last line of defense.
 
 **State rules**

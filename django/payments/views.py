@@ -2,9 +2,11 @@
 
 import json
 import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -75,6 +77,13 @@ class OrderPayView(APIView):
         # The Payment is committed here, before Omise is called, so the charge is never
         # lost if this request dies (spec §7.2 step 3).
 
+        # Testing aid (spec §13.2): a short QR lifetime makes the expiry case testable.
+        expires_at = None
+        if pay_request.method == PaymentMethod.PROMPTPAY and settings.PROMPTPAY_EXPIRES_IN_SECONDS:
+            expires_at = (
+                timezone.now() + timedelta(seconds=settings.PROMPTPAY_EXPIRES_IN_SECONDS)
+            ).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         try:
             charge = omise_client.create_charge(
                 amount=payment.amount,
@@ -83,6 +92,7 @@ class OrderPayView(APIView):
                 payment_id=payment.id,
                 token=pay_request.token,
                 source=pay_request.source,
+                expires_at=expires_at,
                 # 3DS sends the browser back here; that page asks Django for the result.
                 return_uri=(
                     f"{settings.FRONTEND_URL}/orders/{order.id}"

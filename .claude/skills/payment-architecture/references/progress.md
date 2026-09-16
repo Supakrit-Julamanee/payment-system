@@ -29,7 +29,8 @@
   - ข้อ 3: บัตร `4111 1111 1114 0011` → payment `failed` (`insufficient_fund`) และ order ยัง `pending` จากนั้นจ่ายซ้ำด้วย `4242...` สำเร็จ ได้ Payment 2 แถวในหนึ่ง order แถวเดิมไม่ถูกแก้ และมี successful ที่ `needs_refund = false` เพียงแถวเดียว
   - ข้อ 4 (PromptPay สำเร็จ): สร้าง QR จากหน้าเว็บ → กด Mark as successful ใน Dashboard → Omise ส่ง event `charge.complete` เข้า tunnel → Django ดึง charge มาตรวจแล้ว payment เป็น `successful`, order เป็น `paid` และหน้าเว็บเปลี่ยนเองจาก polling นี่คือการพิสูจน์เส้นทาง webhook จริงครั้งแรก
   - ข้อ 5 (PromptPay ล้มเหลว): กด Mark as failed → payment เป็น `failed` พร้อม `failure_code = failed_processing` ส่วน order ยัง `pending` ให้ลองใหม่ได้ (webhook 3 event ที่เข้ามาถูกประมวลผลครบทุกตัว)
-  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2 — ติดที่บัญชีทดสอบยังไม่เปิด 3DS ต้องขอ `support@omise.co` ก่อน), PromptPay หมดอายุ (ข้อ 6 — ต้องรอ QR หมดอายุ 24 ชม. แล้วรัน sync job), webhook ไม่มาถึง (ข้อ 9)
+  - ข้อ 6 (QR หมดอายุ): ตั้ง `PROMPTPAY_EXPIRES_IN_SECONDS=10` แล้วสร้าง QR 2 ใบโดยไม่จ่าย พอรัน `sync_pending_payments` ได้ `checked=2` และ payment ทั้งสองเป็น `expired` ส่วน order ยัง `pending` — Django ไม่ได้ตัดสินเอง แต่ถาม Omise แล้วคัดลอกสถานะมา
+  - เหลือ: 3DS เต็มรูปแบบ (ข้อ 2 — ติดที่บัญชีทดสอบยังไม่เปิด 3DS ต้องขอ `support@omise.co` ก่อน) และ webhook ไม่มาถึง (ข้อ 9 — ปิด tunnel ก่อนจ่าย แล้วปล่อยให้ QR หมดอายุ จากนั้นรัน sync job)
 
 ## 2. Backend infrastructure (`django/`) — §4, §7, §14
 
@@ -67,23 +68,24 @@
 - [x] ต่อเข้า `/pay/`: 2xx → `apply_charge` + 201, 4xx → 402, timeout/5xx → 502 — §7.2
 - [x] ต่อเข้า webhook: 404 → 200, timeout/5xx → 500, สำเร็จ → `apply_charge` + 200 — §10
 - [~] ตรวจข้อมูล Omise ตาม §18 — 2026-09-16 ตรวจแล้ว: path ของ QR, `expires_at` 24 ชม., ยอดขั้นต่ำ PromptPay ฿20, วิธีจำลองใน Dashboard, เลขบัตรทดสอบ (ดูตารางท้ายหัวข้อ 18)
-  - 2026-09-16 ตรวจเพิ่ม: บัตรทดสอบ 3DS ใช้ได้เฉพาะบัญชีที่เปิด 3DS (ต้องขอ `support@omise.co`) และ event ที่ Omise ส่งมาจริงคือ `charge.complete`
-  - เหลือ: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, นโยบายส่งซ้ำ webhook, idempotency key
+  - 2026-09-16 ตรวจเพิ่ม: บัตรทดสอบ 3DS ใช้ได้เฉพาะบัญชีที่เปิด 3DS (ต้องขอ `support@omise.co`), event ที่ส่งจริงมี `charge.create` และ `charge.complete`, event `charge.expire` มีในเอกสารแต่ใช้กับ Barcode Alipay เท่านั้น (PromptPay หมดอายุแล้วเงียบ ตรวจซ้ำด้วย `GET /events` แล้ว) และ Omise ไม่รับประกันการส่ง webhook ซ้ำ
+  - เหลือ: ยอดขั้นต่ำของบัตร, parameter ของ `Omise.createSource`, idempotency key
 - [x] ใส่ key จริงใน `django/.env` และ `nextjs/.env.local` — 2026-09-16 ตรวจด้วย `GET https://api.omise.co/account` ได้ HTTP 200, `livemode: false`, country TH, currency THB
+- [x] `PROMPTPAY_EXPIRES_IN_SECONDS` (ตัวเลือก ใช้ทดสอบเท่านั้น) ส่ง `expires_at` ตอนสร้าง charge ของ PromptPay — 2026-09-16 ยิงจริงกับ Omise พบว่า 10 วินาทีใช้ได้ และ charge เปลี่ยนเป็น `expired` เองเมื่อเลยเวลา ทำให้ทดสอบ §17 ข้อ 6 และ 9 ได้โดยไม่ต้องรอ 24 ชม.
 
 ## 7. Expiry sync job — §11
 
-- [x] `python manage.py sync_pending_payments` (กรณี A, B, C) — 2026-09-16 มี test 11 ข้อผ่าน และรันจริงกับ DB dev ได้ `checked=0 skipped=0 gateway_unreachable=0` (ไม่มีรายการเข้าเงื่อนไข ถูกต้องเพราะ PromptPay ที่ค้างอยู่ยังไม่หมดอายุ)
+- [x] `python manage.py sync_pending_payments` (กรณี A, B, C) — 2026-09-16 มี test 11 ข้อผ่าน และรันจริงได้ผลถูกต้องทั้งตอนไม่มีรายการเข้าเงื่อนไข (`checked=0`) และตอนมี QR หมดอายุ 2 ใบ (`checked=2` แล้ว payment เป็น `expired`)
 - [ ] ตั้ง cron ให้รันทุก 5 นาที — §16.4 (ตอนนี้ต้องรันด้วยมือ)
 
 ## 8. Tests — §17
 
-- [x] test อัตโนมัติ 80 ข้อผ่านบน PostgreSQL จริง (`python manage.py test`)
+- [x] test อัตโนมัติ 94 ข้อผ่านบน PostgreSQL จริง (`python manage.py test`)
 - [x] test runner กันไม่ให้ test ยิง Omise จริง (`config/test_runner.py`) — ถ้าลืม mock จะ error ทันที
 - [x] ครอบคลุมแล้ว: ข้อ 7 (กดจ่ายซ้ำ มี charge เดียว), 8 (webhook ซ้ำ), 10 (`needs_refund`), 11 (แก้ราคา), 12 (webhook ปลอม → 200), 13 (order ที่จ่ายแล้ว → 409), 14 (live key)
 - [x] test แบบ mock Omise client: สำเร็จ, 3DS pending, PromptPay QR, 402 + payment failed, 502 + payment คง pending
 - [x] test ของ sync job กรณี A/B/C รวมกฎ "Omise ยัง pending ให้คงสถานะ" และ "หนึ่งรายการพังต้องไม่หยุดรายการอื่น" — รวมทั้งชุด 91 ข้อผ่าน
-- [~] ข้อ 1, 3, 4 และ 5 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2 (3DS ต้องขอเปิดบัญชีก่อน), 6 (QR หมดอายุ) และ 9 (webhook ไม่มาถึง) โดยสองข้อหลังต้องรอ QR หมดอายุ 24 ชม.
+- [~] ข้อ 1, 3, 4, 5 และ 6 ผ่านแล้วด้วยมือ (2026-09-16) เหลือข้อ 2 (3DS ต้องขอเปิดบัญชีก่อน) และ 9 (webhook ไม่มาถึง)
 
 ## 9. Local development — §16
 

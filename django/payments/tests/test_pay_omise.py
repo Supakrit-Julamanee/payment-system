@@ -1,10 +1,12 @@
 """The /pay/ and webhook paths with the Omise client mocked (spec §17)."""
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import TestCase
+from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from payments.models import Order, OrderStatus, Payment, PaymentMethod, PaymentStatus, WebhookEvent
@@ -20,7 +22,17 @@ QR_URL = "https://example.test/qr.png"
 def charge_builder(**overrides):
     """Build the charge Omise would return for the arguments create_charge was called with."""
 
-    def build(*, amount, currency, order_id, payment_id, token=None, source=None, return_uri=None):
+    def build(
+        *,
+        amount,
+        currency,
+        order_id,
+        payment_id,
+        token=None,
+        source=None,
+        return_uri=None,
+        expires_at=None,
+    ):
         charge = {
             "object": "charge",
             "id": "chrg_test_1",
@@ -28,7 +40,8 @@ def charge_builder(**overrides):
             "currency": currency,
             "status": "successful",
             "authorize_uri": None,
-            "expires_at": None,
+            # Omise echoes back the expiry it was given.
+            "expires_at": expires_at,
             "failure_code": None,
             "failure_message": None,
             "source": None,
@@ -100,6 +113,27 @@ class PayWithOmiseTests(TestCase):
         kwargs = create_charge.call_args.kwargs
         self.assertEqual(kwargs["source"], "src_test_1")
         self.assertIsNone(kwargs["return_uri"])
+        # Omise's own 24 h default is used unless the setting below is on.
+        self.assertIsNone(kwargs["expires_at"])
+
+    @override_settings(PROMPTPAY_EXPIRES_IN_SECONDS=10)
+    def test_promptpay_expiry_can_be_shortened_for_testing(self):
+        build = charge_builder(status="pending", source={"scannable_code": {"image": {"download_uri": QR_URL}}})
+        with patch("payments.omise_client.create_charge", side_effect=build) as create_charge:
+            self.api.post(self.url, PROMPTPAY_BODY, format="json")
+
+        sent = create_charge.call_args.kwargs["expires_at"]
+        self.assertRegex(sent, r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+        seconds_ahead = (
+            datetime.strptime(sent, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC) - timezone.now()
+        ).total_seconds()
+        self.assertTrue(0 < seconds_ahead <= 10, seconds_ahead)
+
+    @override_settings(PROMPTPAY_EXPIRES_IN_SECONDS=10)
+    def test_card_charge_never_gets_an_expiry(self):
+        with patch("payments.omise_client.create_charge", side_effect=charge_builder()) as create_charge:
+            self.api.post(self.url, CARD_BODY, format="json")
+        self.assertIsNone(create_charge.call_args.kwargs["expires_at"])
 
     def test_omise_4xx_marks_payment_failed_and_returns_402(self):
         error = OmiseError(code="insufficient_fund", message="Insufficient funds.", status_code=402)

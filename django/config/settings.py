@@ -25,6 +25,11 @@ OMISE_SECRET_KEY = require_test_secret_key(os.environ.get("OMISE_SECRET_KEY"))
 OMISE_API_BASE = os.environ.get("OMISE_API_BASE", "https://api.omise.co").rstrip("/")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 
+# Testing only (spec §13.2): shorten the PromptPay QR lifetime so the expiry case can be
+# tried without waiting 24 hours. Unset means Omise's own default of 24 hours.
+_promptpay_expiry = os.environ.get("PROMPTPAY_EXPIRES_IN_SECONDS", "").strip()
+PROMPTPAY_EXPIRES_IN_SECONDS = int(_promptpay_expiry) if _promptpay_expiry else None
+
 # No login, sessions or admin (spec §1), so the contrib apps are left out.
 INSTALLED_APPS = [
     "corsheaders",

@@ -91,6 +91,11 @@ class CreateChargeTests(SimpleTestCase):
         self.assertNotIn("card", data)
         self.assertNotIn("return_uri", data)
 
+    def test_expires_at_is_sent_only_when_given(self):
+        self.assertNotIn("expires_at", self.post_data(source="src_test_1"))
+        data = self.post_data(source="src_test_1", expires_at="2026-09-16T07:04:46Z")
+        self.assertEqual(data["expires_at"], "2026-09-16T07:04:46Z")
+
     def test_always_sends_amount_currency_and_metadata(self):
         data = self.post_data(token="tokn_test_1")
         self.assertEqual((data["amount"], data["currency"]), (6000, "thb"))

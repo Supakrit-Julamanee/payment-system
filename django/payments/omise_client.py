@@ -86,6 +86,7 @@ def create_charge(
     token: str | None = None,
     source: str | None = None,
     return_uri: str | None = None,
+    expires_at: str | None = None,
 ) -> dict:
     """POST /charges (spec §13.2). `amount` is satang and comes from the Payment.
 
@@ -104,6 +105,9 @@ def create_charge(
         data["source"] = source
     if return_uri:
         data["return_uri"] = return_uri
+    if expires_at:
+        # ISO 8601, at most 24 h from now (spec §13.2). Omise uses its own default when omitted.
+        data["expires_at"] = expires_at
     return _request("POST", "/charges", data=data)
 
 
