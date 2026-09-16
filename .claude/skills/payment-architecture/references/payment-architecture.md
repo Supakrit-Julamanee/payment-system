@@ -946,6 +946,19 @@ cloudflared tunnel --url http://localhost:8000
 
 ### 16.4 รัน sync job
 
+ตั้ง cron ให้รันทุก 5 นาที (`crontab -e`) ใช้ python ใน `.venv` ด้วย path เต็ม และใส่เครื่องหมายคำพูดครอบ path เพราะชื่อโฟลเดอร์มีช่องว่าง
+
+```cron
+*/5 * * * * cd "/Users/supakrit/Desktop/payment system/django" && ./.venv/bin/python manage.py sync_pending_payments >> sync_pending_payments.log 2>&1
+```
+
+- ไม่ต้อง activate venv และไม่ต้องตั้ง env เพิ่ม เพราะ `settings.py` โหลด `django/.env` เอง (ทดสอบด้วย environment ว่างแบบ cron แล้วผ่าน)
+- บน macOS บางเครื่อง cron เข้าโฟลเดอร์ Desktop ไม่ได้ (`Operation not permitted`) ต้องให้สิทธิ์ Full Disk Access กับ `/usr/sbin/cron` เครื่องที่ทดสอบ 2026-09-16 ไม่ต้องให้สิทธิ์เพิ่ม
+- container `db` ต้องทำงานอยู่ ถ้าไม่ job จะเขียน error ลง log แล้วรอรอบถัดไป
+- `*.log` อยู่ใน `django/.gitignore` แล้ว
+
+รันด้วยมือครั้งเดียว:
+
 ```bash
 python manage.py sync_pending_payments
 ```
